@@ -12,6 +12,7 @@ class ResearchAgent(BaseAgent):
         """Initialize research agent."""
         super().__init__(name="ResearchAgent")
         self.use_mock = not os.getenv("OPENAI_API_KEY")
+        self.llm = None
         
         if not self.use_mock:
             try:

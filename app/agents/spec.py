@@ -12,6 +12,7 @@ class SpecAgent(BaseAgent):
         """Initialize spec agent."""
         super().__init__(name="SpecAgent")
         self.use_mock = not os.getenv("OPENAI_API_KEY")
+        self.llm = None
         
         if not self.use_mock:
             try:
