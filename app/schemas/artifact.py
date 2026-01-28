@@ -23,7 +23,7 @@ class ArtifactBase(BaseModel):
     type: ArtifactType
     name: str
     content: str
-    metadata: Optional[str] = None
+    meta_data: Optional[str] = None  # Renamed from metadata
 
 
 class ArtifactCreate(ArtifactBase):

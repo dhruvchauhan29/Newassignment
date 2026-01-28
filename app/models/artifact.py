@@ -29,7 +29,7 @@ class Artifact(Base):
     type: Mapped[ArtifactType] = mapped_column(Enum(ArtifactType), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    metadata: Mapped[str] = mapped_column(Text, nullable=True)
+    meta_data: Mapped[str] = mapped_column(Text, nullable=True)  # Renamed from metadata
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relationships
