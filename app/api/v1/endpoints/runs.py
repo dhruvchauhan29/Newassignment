@@ -135,12 +135,12 @@ async def start_run(
 
 
 async def _execute_run(run_id: int, product_idea: str):
-    """Execute run in background."""
+    """Execute run in background with database persistence."""
     from app.db.session import AsyncSessionLocal
     
     async with AsyncSessionLocal() as db:
         try:
-            orchestrator = AgentOrchestrator()
+            orchestrator = AgentOrchestrator(db=db, run_id=run_id)
             async for progress in orchestrator.execute(product_idea):
                 run = await RunService.get_run(db, run_id)
                 if run:
@@ -161,6 +161,7 @@ async def _execute_run(run_id: int, product_idea: str):
                     error_message=str(e),
                 )
                 await RunService.update_run(db, run, update_data)
+
 
 
 @router.get("/{run_id}/progress")
@@ -215,3 +216,399 @@ async def get_run_progress(
             await asyncio.sleep(1)  # Poll every second
 
     return EventSourceResponse(event_generator())
+
+
+# Artifact Retrieval Endpoints
+
+@router.get("/{run_id}/epics")
+async def get_run_epics(
+    run_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    """Get all epics for a run."""
+    from sqlalchemy import select
+    from app.models.epic import Epic
+    
+    run = await RunService.get_run(db, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    # Verify project ownership
+    project = await ProjectService.get_project(db, run.project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions",
+        )
+    
+    result = await db.execute(select(Epic).filter(Epic.run_id == run_id))
+    epics = result.scalars().all()
+    
+    return [
+        {
+            "id": epic.id,
+            "title": epic.title,
+            "description": epic.description,
+            "priority": epic.priority,
+            "is_approved": epic.is_approved,
+            "created_at": epic.created_at.isoformat(),
+        }
+        for epic in epics
+    ]
+
+
+@router.get("/{run_id}/stories")
+async def get_run_stories(
+    run_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    """Get all stories for a run."""
+    from sqlalchemy import select
+    from app.models.epic import Epic
+    from app.models.story import Story
+    
+    run = await RunService.get_run(db, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    # Verify project ownership
+    project = await ProjectService.get_project(db, run.project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions",
+        )
+    
+    # Get stories through epics
+    result = await db.execute(
+        select(Story).join(Epic).filter(Epic.run_id == run_id)
+    )
+    stories = result.scalars().all()
+    
+    return [
+        {
+            "id": story.id,
+            "epic_id": story.epic_id,
+            "title": story.title,
+            "description": story.description,
+            "is_approved": story.is_approved,
+            "created_at": story.created_at.isoformat(),
+        }
+        for story in stories
+    ]
+
+
+@router.get("/{run_id}/specs")
+async def get_run_specs(
+    run_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    """Get all specs for a run."""
+    from sqlalchemy import select
+    from app.models.epic import Epic
+    from app.models.story import Story
+    from app.models.spec import Spec
+    
+    run = await RunService.get_run(db, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    # Verify project ownership
+    project = await ProjectService.get_project(db, run.project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions",
+        )
+    
+    # Get specs through stories and epics
+    result = await db.execute(
+        select(Spec).join(Story).join(Epic).filter(Epic.run_id == run_id)
+    )
+    specs = result.scalars().all()
+    
+    return [
+        {
+            "id": spec.id,
+            "story_id": spec.story_id,
+            "component_name": spec.component_name,
+            "technical_details": spec.technical_details,
+            "is_approved": spec.is_approved,
+            "created_at": spec.created_at.isoformat(),
+        }
+        for spec in specs
+    ]
+
+
+@router.get("/{run_id}/artifacts")
+async def get_run_artifacts(
+    run_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    """Get all artifacts for a run."""
+    from sqlalchemy import select
+    from app.models.artifact import Artifact
+    
+    run = await RunService.get_run(db, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    # Verify project ownership
+    project = await ProjectService.get_project(db, run.project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions",
+        )
+    
+    result = await db.execute(select(Artifact).filter(Artifact.run_id == run_id))
+    artifacts = result.scalars().all()
+    
+    return [
+        {
+            "id": artifact.id,
+            "type": artifact.type.value,
+            "name": artifact.name,
+            "content": artifact.content,
+            "created_at": artifact.created_at.isoformat(),
+        }
+        for artifact in artifacts
+    ]
+
+
+# Approval Endpoints
+
+@router.post("/{run_id}/epics/{epic_id}/approve")
+async def approve_epic(
+    run_id: int,
+    epic_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    """Approve an epic."""
+    from sqlalchemy import select
+    from app.models.epic import Epic
+    
+    run = await RunService.get_run(db, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    # Verify project ownership
+    project = await ProjectService.get_project(db, run.project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions",
+        )
+    
+    result = await db.execute(select(Epic).filter(Epic.id == epic_id, Epic.run_id == run_id))
+    epic = result.scalar_one_or_none()
+    
+    if not epic:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Epic not found",
+        )
+    
+    epic.is_approved = True
+    await db.commit()
+    
+    return {"message": "Epic approved", "epic_id": epic_id}
+
+
+@router.post("/{run_id}/stories/{story_id}/approve")
+async def approve_story(
+    run_id: int,
+    story_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    """Approve a story."""
+    from sqlalchemy import select
+    from app.models.epic import Epic
+    from app.models.story import Story
+    
+    run = await RunService.get_run(db, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    # Verify project ownership
+    project = await ProjectService.get_project(db, run.project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions",
+        )
+    
+    result = await db.execute(
+        select(Story).join(Epic).filter(Story.id == story_id, Epic.run_id == run_id)
+    )
+    story = result.scalar_one_or_none()
+    
+    if not story:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found",
+        )
+    
+    story.is_approved = True
+    await db.commit()
+    
+    return {"message": "Story approved", "story_id": story_id}
+
+
+@router.post("/{run_id}/specs/{spec_id}/approve")
+async def approve_spec(
+    run_id: int,
+    spec_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    """Approve a spec."""
+    from sqlalchemy import select
+    from app.models.epic import Epic
+    from app.models.story import Story
+    from app.models.spec import Spec
+    
+    run = await RunService.get_run(db, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    # Verify project ownership
+    project = await ProjectService.get_project(db, run.project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions",
+        )
+    
+    result = await db.execute(
+        select(Spec).join(Story).join(Epic).filter(Spec.id == spec_id, Epic.run_id == run_id)
+    )
+    spec = result.scalar_one_or_none()
+    
+    if not spec:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Spec not found",
+        )
+    
+    spec.is_approved = True
+    await db.commit()
+    
+    return {"message": "Spec approved", "spec_id": spec_id}
+
+
+# Traceability Matrix Endpoint
+
+@router.get("/{run_id}/traceability")
+async def get_traceability_matrix(
+    run_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    """Get traceability matrix for a run."""
+    import json
+    from sqlalchemy import select
+    from app.models.epic import Epic
+    from app.models.story import Story
+    from app.models.spec import Spec
+    from app.models.artifact import Artifact
+    
+    run = await RunService.get_run(db, run_id)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Run not found",
+        )
+    
+    # Verify project ownership
+    project = await ProjectService.get_project(db, run.project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions",
+        )
+    
+    # Build traceability matrix
+    matrix = {
+        "run_id": run_id,
+        "product_idea": run.product_idea,
+        "traceability": []
+    }
+    
+    # Get epics
+    epics_result = await db.execute(select(Epic).filter(Epic.run_id == run_id))
+    epics = epics_result.scalars().all()
+    
+    for epic in epics:
+        epic_trace = {
+            "epic_id": epic.id,
+            "epic_title": epic.title,
+            "stories": []
+        }
+        
+        # Get stories for this epic
+        stories_result = await db.execute(select(Story).filter(Story.epic_id == epic.id))
+        stories = stories_result.scalars().all()
+        
+        for story in stories:
+            story_trace = {
+                "story_id": story.id,
+                "story_title": story.title,
+                "specs": []
+            }
+            
+            # Get specs for this story
+            specs_result = await db.execute(select(Spec).filter(Spec.story_id == story.id))
+            specs = specs_result.scalars().all()
+            
+            for spec in specs:
+                story_trace["specs"].append({
+                    "spec_id": spec.id,
+                    "component_name": spec.component_name,
+                })
+            
+            epic_trace["stories"].append(story_trace)
+        
+        matrix["traceability"].append(epic_trace)
+    
+    # Get artifacts
+    artifacts_result = await db.execute(select(Artifact).filter(Artifact.run_id == run_id))
+    artifacts = artifacts_result.scalars().all()
+    
+    matrix["artifacts"] = [
+        {
+            "id": artifact.id,
+            "type": artifact.type.value,
+            "name": artifact.name,
+        }
+        for artifact in artifacts
+    ]
+    
+    return matrix

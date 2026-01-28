@@ -1,7 +1,7 @@
 """Spec model."""
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -19,6 +19,7 @@ class Spec(Base):
     api_endpoints: Mapped[str] = mapped_column(Text, nullable=True)
     data_models: Mapped[str] = mapped_column(Text, nullable=True)
     dependencies: Mapped[str] = mapped_column(Text, nullable=True)
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relationships

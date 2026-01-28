@@ -42,3 +42,5 @@ class Run(Base):
     project = relationship("Project", back_populates="runs")
     artifacts = relationship("Artifact", back_populates="run", cascade="all, delete-orphan")
     epics = relationship("Epic", back_populates="run", cascade="all, delete-orphan")
+    traceability_matrix = relationship("TraceabilityMatrix", back_populates="run", cascade="all, delete-orphan", uselist=False)
+
